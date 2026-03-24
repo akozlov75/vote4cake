@@ -3,37 +3,31 @@
 import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
 import type { Cake } from '@/lib/cakes'
+import type { VoteClientData } from '@/lib/vote-store'
 
 type VoteBoardProps = {
   cakes: Cake[]
   initialVotes: Record<string, number>
 }
 
-const HAS_VOTED_STORAGE_KEY = 'vote4cake:hasVoted'
-const SELECTED_CAKE_STORAGE_KEY = 'vote4cake:selectedCake'
-
-async function fetchVotes(): Promise<Record<string, number>> {
+async function fetchVotes(): Promise<VoteClientData> {
   const response = await fetch('/api/votes', { cache: 'no-store' })
 
   if (!response.ok) {
     throw new Error('Failed to fetch votes')
   }
 
-  const data = (await response.json()) as { votes?: Record<string, number> }
-  return data.votes ?? {}
+  return (await response.json()) as VoteClientData
 }
 
 export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
+  const [userId, setUserId] = useState('')
   const [votes, setVotes] = useState<Record<string, number>>(initialVotes)
   const [hasVoted, setHasVoted] = useState(false)
   const [selectedCakeId, setSelectedCakeId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isReady, setIsReady] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
-
-  useEffect(() => {
-    setHasVoted(window.localStorage.getItem(HAS_VOTED_STORAGE_KEY) === 'true')
-    setSelectedCakeId(window.localStorage.getItem(SELECTED_CAKE_STORAGE_KEY))
-  }, [])
 
   const votedCake = selectedCakeId
     ? cakes.find((cake) => cake.id === selectedCakeId)
@@ -44,33 +38,44 @@ export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
       return statusMessage
     }
 
+    if (!isReady) {
+      return 'Loading vote status...'
+    }
+
     if (!hasVoted) {
       return 'Tap a cake to submit your vote.'
     }
 
     return `Vote accepted for ${votedCake?.name}.`
-  }, [hasVoted, statusMessage, votedCake?.name])
+  }, [hasVoted, isReady, statusMessage, votedCake?.name])
 
   useEffect(() => {
     let active = true
 
     const syncVotes = async () => {
       try {
-        const latestVotes = await fetchVotes()
+        const data = await fetchVotes()
 
         if (active) {
-          setVotes(latestVotes)
+          setUserId(data.user.userId)
+          setVotes(data.votes)
+          setHasVoted(data.user.hasVoted)
+          setSelectedCakeId(data.user.selectedCakeId)
+          setIsReady(true)
+
           if (!hasVoted) {
             setStatusMessage('')
           }
         }
       } catch {
         if (active) {
+          setIsReady(true)
           setStatusMessage('Vote service is temporarily unavailable.')
         }
       }
     }
 
+    void syncVotes()
     const intervalId = window.setInterval(syncVotes, 5000)
 
     return () => {
@@ -80,7 +85,7 @@ export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
   }, [hasVoted])
 
   const handleVote = async (cakeId: string) => {
-    if (hasVoted || isSubmitting) {
+    if (!isReady || !userId || hasVoted || isSubmitting) {
       return
     }
 
@@ -90,20 +95,27 @@ export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
       const response = await fetch('/api/votes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cakeId }),
+        body: JSON.stringify({ userId, cakeId }),
       })
 
-      if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as VoteClientData & {
+        error?: string
+      } | null
+
+      if (!data) {
         throw new Error('Failed to submit vote')
       }
 
-      setSelectedCakeId(cakeId)
-      setHasVoted(true)
-      window.localStorage.setItem(HAS_VOTED_STORAGE_KEY, 'true')
-      window.localStorage.setItem(SELECTED_CAKE_STORAGE_KEY, cakeId)
+      setUserId(data.user.userId)
+      setVotes(data.votes)
+      setHasVoted(data.user.hasVoted)
+      setSelectedCakeId(data.user.selectedCakeId)
 
-      const latestVotes = await fetchVotes()
-      setVotes(latestVotes)
+      if (!response.ok) {
+        setStatusMessage(data.error ?? 'You have already voted.')
+        return
+      }
+
       setStatusMessage('')
     } catch {
       setStatusMessage('Could not submit vote right now. Please try again.')
@@ -131,7 +143,7 @@ export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
               type="button"
               className={cardClassName}
               onClick={() => void handleVote(cake.id)}
-              disabled={hasVoted || isSubmitting}
+              disabled={!isReady || hasVoted || isSubmitting}
               role="listitem"
             >
               <Image src={cake.imageUrl} alt={cake.name} width={900} height={600} />
