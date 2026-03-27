@@ -28,7 +28,7 @@ function withUserCookie(response: NextResponse, userId: string): NextResponse {
 
 export async function GET(request: NextRequest) {
   const { userId, shouldSetCookie } = resolveUserId(request);
-  const response = NextResponse.json(getVoteClientData(userId));
+  const response = NextResponse.json(await getVoteClientData(userId));
 
   if (shouldSetCookie) {
     return withUserCookie(response, userId);
@@ -63,14 +63,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "cakeId is required" }, { status: 400 });
   }
 
-  const result = registerVote(cookieUserId, cakeId);
+  const result = await registerVote(cookieUserId, cakeId);
 
   if (!result.ok) {
     const status = result.code === "already-voted" ? 409 : 400;
     const response = NextResponse.json(
       {
         error: result.message,
-        ...getVoteClientData(cookieUserId),
+        ...(await getVoteClientData(cookieUserId)),
       },
       { status },
     );
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
   const response = NextResponse.json(
     {
       accepted: true,
-      ...getVoteClientData(cookieUserId),
+      ...(await getVoteClientData(cookieUserId)),
     },
     { status: 202 },
   );

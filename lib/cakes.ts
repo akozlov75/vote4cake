@@ -6,23 +6,23 @@ export type Cake = {
 
 export const CAKES: Cake[] = [
   {
-    id: "choco-dream",
-    name: "Chocolate Dream",
-    imageUrl: "/cakes/choco-dream.jpg",
+    id: "seatlle-style-bananabread",
+    name: "Seatlle Style Bananabread",
+    imageUrl: "/cakes/cake.jpg",
   },
   {
-    id: "berry-cloud",
-    name: "Berry Cloud",
-    imageUrl: "/cakes/berry-cloud.jpg",
+    id: "monkey-business-cake",
+    name: "Monkey Business Cake",
+    imageUrl: "/cakes/cake.jpg",
   },
   {
-    id: "lemon-zest",
-    name: "Lemon Zest",
-    imageUrl: "/cakes/lemon-zest.jpg",
+    id: "meheva-messias",
+    name: "Mehevä Messias",
+    imageUrl: "/cakes/cake.jpg",
   },
   {
-    id: "caramel-crunch",
-    name: "Caramel Crunch",
-    imageUrl: "/cakes/caramel-crunch.jpg",
+    id: "sad-beige",
+    name: "Sad Beige",
+    imageUrl: "/cakes/cake.jpg",
   },
 ];

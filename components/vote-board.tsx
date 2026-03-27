@@ -22,7 +22,7 @@ async function fetchVotes(): Promise<VoteClientData> {
 
 export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
   const [userId, setUserId] = useState('')
-  const [votes, setVotes] = useState<Record<string, number>>(initialVotes)
+  const [, setVotes] = useState<Record<string, number>>(initialVotes)
   const [hasVoted, setHasVoted] = useState(false)
   const [selectedCakeId, setSelectedCakeId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -43,7 +43,7 @@ export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
     }
 
     if (!hasVoted) {
-      return 'Tap a cake to submit your vote.'
+      return ''
     }
 
     return `Vote accepted for ${votedCake?.name}.`
@@ -147,7 +147,7 @@ export function VoteBoard({ cakes, initialVotes }: VoteBoardProps) {
               role="listitem"
             >
               <Image src={cake.imageUrl} alt={cake.name} width={900} height={600} />
-              <span>{`${cake.name} (${votes[cake.id] ?? 0})`}</span>
+              <span>{cake.name}</span>
             </button>
           )
         })}

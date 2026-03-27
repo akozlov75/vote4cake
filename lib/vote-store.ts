@@ -1,11 +1,8 @@
 import { CAKES } from "@/lib/cakes";
+import { getMongoDb } from "@/lib/mongodb";
+import { MongoServerError } from "mongodb";
 
 const validCakeIds = new Set(CAKES.map((cake) => cake.id));
-
-type VoteState = {
-  votes: Map<string, number>;
-  userVotes: Map<string, string>;
-};
 
 export type UserVoteData = {
   userId: string;
@@ -18,33 +15,69 @@ export type VoteClientData = {
   user: UserVoteData;
 };
 
-declare global {
-  // eslint-disable-next-line no-var
-  var voteState: VoteState | undefined;
-}
-
-const state: VoteState = globalThis.voteState ?? {
-  votes: new Map(),
-  userVotes: new Map(),
+type UserVoteDocument = {
+  userId: string;
+  cakeId: string;
+  createdAt: Date;
 };
 
-if (!globalThis.voteState) {
-  globalThis.voteState = state;
+let indexesInitializedPromise: Promise<void> | null = null;
+
+async function ensureIndexes(): Promise<void> {
+  if (indexesInitializedPromise) {
+    return indexesInitializedPromise;
+  }
+
+  indexesInitializedPromise = (async () => {
+    const db = await getMongoDb();
+    await db
+      .collection<UserVoteDocument>("user_votes")
+      .createIndex({ userId: 1 }, { unique: true });
+  })();
+
+  return indexesInitializedPromise;
 }
 
-export function getVotesSnapshot(): Record<string, number> {
-  return Object.fromEntries(state.votes.entries());
+export async function getVotesSnapshot(): Promise<Record<string, number>> {
+  await ensureIndexes();
+  const db = await getMongoDb();
+
+  const rows = await db
+    .collection<UserVoteDocument>("user_votes")
+    .aggregate<{ _id: string; count: number }>([
+      { $group: { _id: "$cakeId", count: { $sum: 1 } } },
+    ])
+    .toArray();
+
+  const votes = Object.fromEntries(rows.map((row) => [row._id, row.count]));
+
+  return votes;
 }
 
-export function getUserVote(userId: string): string | null {
-  return state.userVotes.get(userId) ?? null;
+export async function getUserVote(userId: string): Promise<string | null> {
+  await ensureIndexes();
+  const db = await getMongoDb();
+
+  const vote = await db.collection<UserVoteDocument>("user_votes").findOne(
+    { userId },
+    {
+      projection: {
+        _id: 0,
+        cakeId: 1,
+      },
+    },
+  );
+
+  return vote?.cakeId ?? null;
 }
 
-export function getVoteClientData(userId: string): VoteClientData {
-  const selectedCakeId = getUserVote(userId);
+export async function getVoteClientData(
+  userId: string,
+): Promise<VoteClientData> {
+  const selectedCakeId = await getUserVote(userId);
 
   return {
-    votes: getVotesSnapshot(),
+    votes: await getVotesSnapshot(),
     user: {
       userId,
       hasVoted: selectedCakeId !== null,
@@ -53,27 +86,46 @@ export function getVoteClientData(userId: string): VoteClientData {
   };
 }
 
-export function registerVote(
+export async function registerVote(
   userId: string,
   cakeId: string,
-):
+): Promise<
   | { ok: true }
-  | { ok: false; message: string; code: "invalid-cake" | "already-voted" } {
+  | { ok: false; message: string; code: "invalid-cake" | "already-voted" }
+> {
   if (!validCakeIds.has(cakeId)) {
     return { ok: false, message: "Invalid cakeId", code: "invalid-cake" };
   }
 
-  if (state.userVotes.has(userId)) {
-    return {
-      ok: false,
-      message: "User has already voted",
-      code: "already-voted",
-    };
+  await ensureIndexes();
+  const db = await getMongoDb();
+
+  try {
+    await db.collection<UserVoteDocument>("user_votes").insertOne({
+      userId,
+      cakeId,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    if (
+      error instanceof MongoServerError &&
+      (error.code === 11000 || error.code === 11001)
+    ) {
+      return {
+        ok: false,
+        message: "User has already voted",
+        code: "already-voted",
+      };
+    }
+
+    throw error;
   }
 
-  const nextValue = (state.votes.get(cakeId) ?? 0) + 1;
-  state.votes.set(cakeId, nextValue);
-  state.userVotes.set(userId, cakeId);
-
   return { ok: true };
+}
+
+export async function resetVotes(): Promise<void> {
+  await ensureIndexes();
+  const db = await getMongoDb();
+  await db.collection<UserVoteDocument>("user_votes").deleteMany({});
 }
